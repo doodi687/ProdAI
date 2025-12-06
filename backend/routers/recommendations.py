@@ -14,7 +14,7 @@ async def get_recommendations(request: RecommendationRequest):
     Get AI-powered product recommendations based on user query.
     """
     try:
-        recommendations = await ai_service.get_recommendations(
+        recommendations = ai_service.get_recommendations(
             query=request.query,
             category=request.category,
             budget_min=request.budget_min,

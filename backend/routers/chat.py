@@ -15,7 +15,7 @@ async def send_message(request: ChatRequest):
     Optionally include product context for more relevant responses.
     """
     try:
-        response, suggestions = await ai_service.chat(
+        response, suggestions = ai_service.chat(
             message=request.message,
             product_context=request.product_context,
             history=request.conversation_history
