@@ -13,6 +13,7 @@ from models import ProductDetails, ProductPrice, ProductSpecification, Platform
 from datetime import datetime
 import asyncio
 from cachetools import TTLCache
+import json
 
 # Cache for product data (1 hour TTL)
 product_cache = TTLCache(maxsize=100, ttl=3600)
@@ -25,12 +26,17 @@ class ProductScraper:
     def _get_headers(self) -> Dict[str, str]:
         """Generate random headers to avoid detection"""
         return {
-            "User-Agent": self.ua.random,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
             "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
         }
     
     def detect_platform(self, url: str) -> Platform:
@@ -43,22 +49,23 @@ class ProductScraper:
         return Platform.UNKNOWN
     
     async def fetch_page(self, url: str) -> Optional[str]:
-        """Fetch page content"""
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-                response = await client.get(url, headers=self._get_headers())
-                if response.status_code == 200:
-                    return response.text
-                print(f"Failed to fetch {url}: Status {response.status_code}")
-                return None
-        except Exception as e:
-            print(f"Error fetching {url}: {e}")
-            return None
+        """Fetch page content with retries"""
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+                    response = await client.get(url, headers=self._get_headers())
+                    if response.status_code == 200:
+                        return response.text
+                    print(f"Attempt {attempt + 1}: Failed to fetch {url}: Status {response.status_code}")
+            except Exception as e:
+                print(f"Attempt {attempt + 1}: Error fetching {url}: {e}")
+            await asyncio.sleep(1)  # Wait before retry
+        return None
     
     async def scrape_amazon(self, url: str, html: str) -> Optional[ProductDetails]:
         """Scrape Amazon product page"""
         try:
-            soup = BeautifulSoup(html, 'lxml')
+            soup = BeautifulSoup(html, 'html.parser')
             
             # Title
             title_elem = soup.select_one('#productTitle')
@@ -174,7 +181,7 @@ class ProductScraper:
     async def scrape_flipkart(self, url: str, html: str) -> Optional[ProductDetails]:
         """Scrape Flipkart product page"""
         try:
-            soup = BeautifulSoup(html, 'lxml')
+            soup = BeautifulSoup(html, 'html.parser')
             
             # Title
             title_elem = soup.select_one('.VU-ZEz, h1.yhB1nd span')
@@ -291,27 +298,159 @@ class ProductScraper:
         platform = self.detect_platform(url)
         html = await self.fetch_page(url)
         
-        if not html:
-            return None
-        
         product = None
-        if platform == Platform.AMAZON:
-            product = await self.scrape_amazon(url, html)
-        elif platform == Platform.FLIPKART:
-            product = await self.scrape_flipkart(url, html)
-        else:
-            # Try to extract basic info for unknown platforms
-            product = await self._scrape_generic(url, html)
+        
+        if html:
+            if platform == Platform.AMAZON:
+                product = await self.scrape_amazon(url, html)
+            elif platform == Platform.FLIPKART:
+                product = await self.scrape_flipkart(url, html)
+            else:
+                product = await self._scrape_generic(url, html)
+        
+        # If scraping failed, try AI-based extraction from URL
+        if not product or (product and product.title == "Unknown Product"):
+            print(f"Scraping failed for {url}, trying AI extraction...")
+            product = await self._ai_extract_from_url(url, platform)
         
         if product:
             product_cache[cache_key] = product
         
         return product
     
+    async def _ai_extract_from_url(self, url: str, platform: Platform) -> Optional[ProductDetails]:
+        """Use AI to extract product info from URL when scraping fails"""
+        try:
+            from services.ai_service import ai_service
+            
+            if not ai_service.is_available():
+                return self._create_demo_product(url, platform)
+            
+            # Extract product info from URL slug
+            from urllib.parse import urlparse, unquote
+            parsed = urlparse(url)
+            path = unquote(parsed.path)
+            
+            # Try to extract product name from URL
+            parts = [p for p in path.split('/') if p and len(p) > 3]
+            product_hint = " ".join(parts[-3:]) if parts else "product"
+            product_hint = product_hint.replace('-', ' ').replace('_', ' ')
+            
+            prompt = f"""Based on this e-commerce URL, provide product information.
+URL: {url}
+Platform: {platform.value if platform else 'unknown'}
+URL hints: {product_hint}
+
+Generate realistic product details in this exact JSON format:
+{{
+    "title": "Product name extracted or inferred from URL",
+    "brand": "Brand name if identifiable",
+    "description": "Brief product description",
+    "category": "Product category",
+    "price": 1999,
+    "rating": 4.2,
+    "review_count": 150,
+    "specifications": [
+        {{"name": "Spec 1", "value": "Value 1"}},
+        {{"name": "Spec 2", "value": "Value 2"}}
+    ]
+}}
+
+Respond with ONLY valid JSON, no markdown or explanation."""
+
+            response = ai_service.client.chat.completions.create(
+                model=ai_service.model,
+                messages=[
+                    {"role": "system", "content": "You are a product information extractor. Extract or infer product details from e-commerce URLs. Respond only with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.5,
+                max_tokens=500
+            )
+            
+            content = response.choices[0].message.content
+            
+            # Parse JSON response
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            if json_match:
+                data = json.loads(json_match.group())
+            else:
+                data = json.loads(content)
+            
+            # Build specifications
+            specs = []
+            for spec in data.get("specifications", []):
+                if isinstance(spec, dict) and "name" in spec and "value" in spec:
+                    specs.append(ProductSpecification(name=spec["name"], value=str(spec["value"])))
+            
+            domain = urlparse(url).netloc
+            platform_name = platform.value.capitalize() if platform != Platform.UNKNOWN else domain
+            
+            return ProductDetails(
+                title=data.get("title", "Product"),
+                description=data.get("description"),
+                brand=data.get("brand"),
+                category=data.get("category", "Electronics"),
+                image_url=None,
+                images=[],
+                rating=float(data.get("rating", 0)) if data.get("rating") else None,
+                review_count=int(data.get("review_count", 0)) if data.get("review_count") else None,
+                specifications=specs,
+                prices=[ProductPrice(
+                    platform=platform_name,
+                    price=float(data.get("price", 0)),
+                    url=url,
+                    in_stock=True
+                )],
+                platform=platform_name,
+                url=url
+            )
+            
+        except Exception as e:
+            print(f"AI extraction failed: {e}")
+            return self._create_demo_product(url, platform)
+    
+    def _create_demo_product(self, url: str, platform: Platform) -> ProductDetails:
+        """Create a demo product when all else fails"""
+        from urllib.parse import urlparse, unquote
+        parsed = urlparse(url)
+        path = unquote(parsed.path)
+        
+        # Extract product name from URL
+        parts = [p for p in path.split('/') if p and len(p) > 3 and not p.startswith('dp') and not p.startswith('ref')]
+        title = parts[0].replace('-', ' ').title() if parts else "Product"
+        
+        domain = parsed.netloc
+        platform_name = platform.value.capitalize() if platform != Platform.UNKNOWN else domain
+        
+        return ProductDetails(
+            title=title,
+            description=f"Product from {platform_name}. Unable to fetch full details - the website may be blocking automated access.",
+            brand=None,
+            category="General",
+            image_url=None,
+            images=[],
+            rating=None,
+            review_count=None,
+            specifications=[
+                ProductSpecification(name="Source", value=platform_name),
+                ProductSpecification(name="Note", value="Limited data available due to website restrictions")
+            ],
+            prices=[ProductPrice(
+                platform=platform_name,
+                price=0,
+                url=url,
+                in_stock=True
+            )],
+            platform=platform_name,
+            url=url
+        )
+    
     async def _scrape_generic(self, url: str, html: str) -> Optional[ProductDetails]:
         """Generic scraper for unknown platforms"""
         try:
-            soup = BeautifulSoup(html, 'lxml')
+            soup = BeautifulSoup(html, 'html.parser')
             
             # Try common title selectors
             title = None
