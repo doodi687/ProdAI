@@ -46,8 +46,8 @@ async def compare_products(request: CompareRequest):
         # Build comparison table
         comparison_table = build_comparison_table(products)
         
-        # Get AI analysis
-        ai_analysis = await ai_service.compare_products(products)
+        # Get AI analysis (synchronous call)
+        ai_analysis = ai_service.compare_products(products)
         
         # Find winner based on value (price/rating ratio)
         winner = find_best_value(products)
