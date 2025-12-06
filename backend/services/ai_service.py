@@ -1,10 +1,11 @@
 """
-AI Service - OpenAI Integration for Product Analysis and Chatbot
+AI Service - Groq Integration for Product Analysis and Chatbot
+Using Groq for fast, free LLM inference
 """
 
 import os
 from typing import List, Dict, Any, Optional
-from openai import AsyncOpenAI
+from groq import Groq
 from models import ProductDetails, ProsCons, ChatMessage
 from dotenv import load_dotenv
 
@@ -12,15 +13,15 @@ load_dotenv()
 
 class AIService:
     def __init__(self):
-        api_key = os.getenv("OPENAI_API_KEY")
-        self.client = AsyncOpenAI(api_key=api_key) if api_key and api_key != "your_openai_api_key_here" else None
-        self.model = "gpt-3.5-turbo"
+        api_key = os.getenv("GROQ_API_KEY")
+        self.client = Groq(api_key=api_key) if api_key and api_key != "your_groq_api_key_here" else None
+        self.model = "llama-3.1-70b-versatile"  # Fast and capable model
     
     def is_available(self) -> bool:
         """Check if AI service is available"""
         return self.client is not None
     
-    async def analyze_product(self, product: ProductDetails) -> ProsCons:
+    def analyze_product(self, product: ProductDetails) -> ProsCons:
         """Generate pros/cons analysis for a product"""
         if not self.is_available():
             return self._fallback_analysis(product)
@@ -40,7 +41,7 @@ Specifications:
 
 Description: {product.description or 'N/A'}
 
-Provide your analysis in the following JSON format:
+Provide your analysis in the following JSON format only, no other text:
 {{
     "pros": ["pro1", "pro2", "pro3", "pro4"],
     "cons": ["con1", "con2", "con3"],
@@ -48,10 +49,10 @@ Provide your analysis in the following JSON format:
     "recommendation": "Who should buy this and why"
 }}"""
 
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a helpful product analyst. Provide honest, balanced analysis. Respond only with valid JSON."},
+                    {"role": "system", "content": "You are a helpful product analyst. Provide honest, balanced analysis. Respond only with valid JSON, no markdown."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
@@ -134,7 +135,7 @@ Provide your analysis in the following JSON format:
             recommendation="Consider your specific needs and compare with similar products before making a decision."
         )
     
-    async def chat(self, message: str, product_context: Optional[Dict[str, Any]] = None, 
+    def chat(self, message: str, product_context: Optional[Dict[str, Any]] = None, 
                    history: List[ChatMessage] = []) -> tuple[str, List[str]]:
         """Handle chat messages about products"""
         if not self.is_available():
@@ -161,7 +162,7 @@ At the end of your response, suggest 2-3 follow-up questions the user might want
             
             messages.append({"role": "user", "content": message})
             
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=0.7,
@@ -231,7 +232,7 @@ At the end of your response, suggest 2-3 follow-up questions the user might want
             ["How do I get started?", "What platforms do you support?", "Can you help me find products?"]
         )
     
-    async def compare_products(self, products: List[ProductDetails]) -> str:
+    def compare_products(self, products: List[ProductDetails]) -> str:
         """Generate AI comparison of multiple products"""
         if not self.is_available():
             return self._fallback_comparison(products)
@@ -256,7 +257,7 @@ Provide:
 2. Which product is better for different use cases
 3. Your recommendation and why"""
 
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a product comparison expert. Provide concise, helpful comparisons."},
@@ -294,7 +295,7 @@ Provide:
         
         return comparison
     
-    async def get_recommendations(self, query: str, category: Optional[str] = None,
+    def get_recommendations(self, query: str, category: Optional[str] = None,
                                    budget_min: Optional[float] = None, 
                                    budget_max: Optional[float] = None) -> List[Dict[str, str]]:
         """Get AI-powered product recommendations"""
@@ -319,13 +320,13 @@ For each recommendation, provide:
 4. Why it's recommended
 5. Search query to find it
 
-Format as JSON array:
+Format as JSON array only, no other text:
 [{{"title": "", "description": "", "estimated_price_range": "", "why_recommended": "", "search_query": ""}}]"""
 
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a shopping recommendation expert. Provide helpful product suggestions. Respond only with valid JSON."},
+                    {"role": "system", "content": "You are a shopping recommendation expert. Provide helpful product suggestions. Respond only with valid JSON, no markdown."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.8,

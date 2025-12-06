@@ -36,5 +36,5 @@ async def chat_status():
     return {
         "available": ai_service.is_available(),
         "model": ai_service.model if ai_service.is_available() else "fallback",
-        "message": "AI service is ready" if ai_service.is_available() else "Running in fallback mode (set OPENAI_API_KEY for full features)"
+        "message": "AI service is ready" if ai_service.is_available() else "Running in fallback mode (set GROQ_API_KEY for full features)"
     }
