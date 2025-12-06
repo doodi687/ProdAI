@@ -15,7 +15,7 @@ class AIService:
     def __init__(self):
         api_key = os.getenv("GROQ_API_KEY")
         self.client = Groq(api_key=api_key) if api_key and api_key != "your_groq_api_key_here" else None
-        self.model = "llama-3.1-70b-versatile"  # Fast and capable model
+        self.model = "llama-3.3-70b-versatile"  # Latest available model
     
     def is_available(self) -> bool:
         """Check if AI service is available"""
