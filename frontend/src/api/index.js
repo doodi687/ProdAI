@@ -1,9 +1,7 @@
 import axios from 'axios';
 
-// Use environment variable for API URL
-// In production on Render, set VITE_API_URL to your backend URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 
-  (import.meta.env.PROD ? 'https://prodai-backend.onrender.com' : 'http://localhost:8000');
+// Backend API URL - uses environment variable or defaults to Render backend
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://prodai-backend.onrender.com';
 
 console.log('API Base URL:', API_BASE_URL);
 
