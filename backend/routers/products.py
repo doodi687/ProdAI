@@ -41,7 +41,7 @@ async def get_pros_cons(request: ProductLink):
                 detail="Could not extract product information for analysis."
             )
         
-        analysis = await ai_service.analyze_product(product)
+        analysis = ai_service.analyze_product(product)
         return analysis
     except HTTPException:
         raise
@@ -61,7 +61,7 @@ async def analyze_product_full(request: ProductLink):
                 detail="Could not extract product information."
             )
         
-        analysis = await ai_service.analyze_product(product)
+        analysis = ai_service.analyze_product(product)
         
         return {
             "product": product,
